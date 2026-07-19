@@ -13,6 +13,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "kakao-telegram-s
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 import tele_sticker_maker.webp as webp
+from tele_sticker_maker.models import MINI_LAYOUT
 from tele_sticker_maker.webp import (
     CandidateValidationError,
     ToolError,
@@ -71,6 +72,21 @@ def test_fit_size_makes_long_side_exactly_512():
     assert fit_size(9, 2) == (512, 114)
 
 
+def test_mini_static_png_is_contained_in_centered_250_box(tmp_path):
+    source, destination = tmp_path / "mini.png", tmp_path / "telegram.png"
+    Image.new("RGBA", (180, 180), (10, 20, 30, 255)).save(source)
+    before = source.read_bytes()
+
+    assert make_static_png(source, destination, layout=MINI_LAYOUT) == (512, 512)
+
+    assert source.read_bytes() == before
+    with Image.open(destination) as result:
+        assert result.size == (512, 512)
+        assert result.getbbox() == (131, 131, 381, 381)
+        assert result.getpixel((130, 130))[3] == 0
+        assert result.getpixel((131, 131))[3] == 255
+
+
 def test_long_animation_durations_are_proportionally_capped_with_nonzero_frames():
     scaled = _scaled_durations((1_000, 3_000))
     assert scaled == (738, 2_212)
@@ -107,6 +123,17 @@ def test_animated_webp_becomes_valid_telegram_webm(tmp_path):
     assert result.width == 512
     assert output.stat().st_size <= 256 * 1024
     assert validate_telegram_video(output).duration_ms <= 3000
+
+
+@pytest.mark.skipif(not _vp9_capable() or os.environ.get("TELE_STICKER_SKIP_VP9_E2E") == "1", reason="real VP9 E2E disabled or encoder unavailable")
+def test_mini_animated_webp_uses_square_transparent_canvas(tmp_path):
+    source, output = tmp_path / "mini.webp", tmp_path / "mini.webm"
+    _animated_webp(source)
+
+    result = make_animated_webm(source, output, layout=MINI_LAYOUT)
+
+    assert (result.width, result.height) == (512, 512)
+    assert result.byte_size <= 256 * 1024
 
 
 @pytest.mark.parametrize("durations", [(2_000, 2_000), (3_000, 3_000)])

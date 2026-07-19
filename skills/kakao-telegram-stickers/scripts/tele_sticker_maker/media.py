@@ -11,6 +11,7 @@ import tempfile
 import time
 import threading
 import uuid
+from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from typing import Optional
@@ -18,7 +19,20 @@ from typing import Optional
 from PIL import Image, UnidentifiedImageError
 
 from .kakao import KakaoClient, KakaoError, RemoteSticker
-from .models import ItemStatus, KakaoStickerItem, ManifestV2, PreparedSticker, SourceKind, TelegramFormat
+from .models import (
+    ItemStatus,
+    KakaoSetMetadata,
+    KakaoStickerItem,
+    LayoutDecision,
+    LayoutError,
+    ManifestV2,
+    PreparedSticker,
+    RenderLayout,
+    SourceKind,
+    STANDARD_LAYOUT,
+    TelegramFormat,
+    resolve_layout,
+)
 from .webp import WebPError, make_animated_webm, make_static_png
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -85,7 +99,14 @@ def _save_preview(image: Image.Image, path: Path) -> None:
     _atomic_write(path, rendered.getvalue())
 
 
-def _store_item(index: int, remote: RemoteSticker, raw: bytes, content_type: Optional[str], output: Path) -> KakaoStickerItem:
+def _store_item(
+    index: int,
+    remote: RemoteSticker,
+    raw: bytes,
+    content_type: Optional[str],
+    output: Path,
+    render_layout: RenderLayout = STANDARD_LAYOUT,
+) -> KakaoStickerItem:
     image, kind = _inspect(raw, remote)
     extension = "webp" if kind is SourceKind.ANIMATED_WEBP else "png"
     relative_file = "{}/sticker_{:02d}.{}".format(extension, index, extension)
@@ -116,6 +137,7 @@ def _store_item(index: int, remote: RemoteSticker, raw: bytes, content_type: Opt
         source_kind=kind,
         status=ItemStatus.DOWNLOADED,
         source_sha256=hashlib.sha256(raw).hexdigest(),
+        render_layout=render_layout,
     )
 
 
@@ -257,11 +279,17 @@ def prepare_telegram_item(item: KakaoStickerItem, set_root: Path, *, ffmpeg: str
     destination = set_root / relative
     try:
         if item.source_kind is SourceKind.ANIMATED_WEBP:
-            validation = make_animated_webm(source, destination, ffmpeg=ffmpeg, ffprobe=ffprobe)
+            validation = make_animated_webm(
+                source,
+                destination,
+                ffmpeg=ffmpeg,
+                ffprobe=ffprobe,
+                layout=item.render_layout,
+            )
             duration_ms = validation.duration_ms
             format_ = TelegramFormat.VIDEO
         else:
-            make_static_png(source, destination)
+            make_static_png(source, destination, layout=item.render_layout)
             duration_ms = None
             format_ = TelegramFormat.STATIC
         derived = destination.read_bytes()
@@ -285,8 +313,14 @@ def prepare_telegram_item(item: KakaoStickerItem, set_root: Path, *, ffmpeg: str
         )
 
 
-def download_set(value: str, output_root: Path = Path("stickers"), client: Optional[KakaoClient] = None) -> ManifestV2:
-    """Download one complete set to staging, then atomically replace ``{slug}``."""
+def download_set(
+    value: str,
+    output_root: Path = Path("stickers"),
+    client: Optional[KakaoClient] = None,
+    *,
+    layout_mode: str = "auto",
+) -> ManifestV2:
+    """Download one complete set and bind its detected render layout."""
     kakao = client or KakaoClient()
     slug, source_page = kakao.resolve(value)
     root = Path(output_root)
@@ -296,15 +330,47 @@ def download_set(value: str, output_root: Path = Path("stickers"), client: Optio
         with _SetLock(root, slug):
             _recover_orphans(output)
             staging = Path(tempfile.mkdtemp(prefix=".{}.staging-".format(slug), dir=str(root)))
-            api_url, remote_items = kakao.fetch_items(slug)
+            source_traits: Optional[KakaoSetMetadata] = None
+            layout_decision: Optional[LayoutDecision] = None
+            if hasattr(kakao, "fetch_set"):
+                response = kakao.fetch_set(slug)
+                api_url, remote_items = response.api_url, response.items
+                source_traits = response.metadata
+                try:
+                    layout_decision = resolve_layout(source_traits, layout_mode)
+                except LayoutError as error:
+                    raise MediaError(str(error)) from error
+                dimensions = {(item.api_width, item.api_height) for item in remote_items}
+                mismatch = (
+                    source_traits.is_mini is True and dimensions != {(180, 180)}
+                ) or (
+                    source_traits.is_mini is False and dimensions == {(180, 180)}
+                )
+                if mismatch:
+                    layout_decision = replace(
+                        layout_decision,
+                        warnings=layout_decision.warnings + ("metadata_mismatch",),
+                    )
+                render_layout = layout_decision.layout
+            else:
+                # Backward compatibility for injected clients that predate set traits.
+                api_url, remote_items = kakao.fetch_items(slug)
+                render_layout = STANDARD_LAYOUT
             items = []
             for index, remote in enumerate(remote_items, 1):
                 try:
                     raw, content_type = kakao.download(remote.source_url)
-                    items.append(_store_item(index, remote, raw, content_type, staging))
+                    items.append(_store_item(index, remote, raw, content_type, staging, render_layout))
                 except KakaoError as error:
                     raise MediaError("sticker_{:02d}: {}".format(index, error)) from error
-            manifest = ManifestV2(slug=slug, source_page=source_page, api_url=api_url, items=tuple(items))
+            manifest = ManifestV2(
+                slug=slug,
+                source_page=source_page,
+                api_url=api_url,
+                items=tuple(items),
+                source_traits=source_traits,
+                layout_decision=layout_decision,
+            )
             _atomic_write(staging / "json" / "manifest.json", (json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
             _swap_set(staging, output)
             staging = None

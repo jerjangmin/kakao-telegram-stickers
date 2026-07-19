@@ -11,6 +11,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from .models import KakaoSetMetadata
+
 PAGE_HOST = "e.kakao.com"
 ITEM_HOST = "emoticon.kakao.com"
 MAX_REDIRECTS = 5
@@ -31,6 +33,15 @@ class RemoteSticker:
     animated_url: Optional[str]
     api_width: Optional[int]
     api_height: Optional[int]
+
+
+@dataclass(frozen=True)
+class KakaoSetResponse:
+    """One normalized Kakao item API response with set-level traits."""
+
+    api_url: str
+    metadata: KakaoSetMetadata
+    items: tuple[RemoteSticker, ...]
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -193,6 +204,29 @@ def parse_items(payload: Any) -> list[RemoteSticker]:
     return items
 
 
+def _optional_bool(value: Any, field: str) -> Optional[bool]:
+    if value is None:
+        return None
+    if not isinstance(value, bool):
+        raise KakaoError("{}는 불리언이어야 합니다".format(field))
+    return value
+
+
+def parse_set(payload: Any, api_url: str) -> KakaoSetResponse:
+    """Parse item media plus authoritative set-level layout traits."""
+    items = tuple(parse_items(payload))
+    contents = payload.get("contents") if isinstance(payload, dict) else None
+    if isinstance(contents, dict):
+        metadata = KakaoSetMetadata(
+            is_mini=_optional_bool(contents.get("isMini"), "contents.isMini"),
+            is_big=_optional_bool(contents.get("isBig"), "contents.isBig"),
+            is_sound=_optional_bool(contents.get("isSound"), "contents.isSound"),
+        )
+    else:
+        metadata = KakaoSetMetadata(None, None, None)
+    return KakaoSetResponse(api_url, metadata, items)
+
+
 class KakaoClient:
     """Small stdlib HTTP client with explicit host, redirect, and size limits."""
 
@@ -204,7 +238,7 @@ class KakaoClient:
     def resolve(self, value: str) -> tuple[str, str]:
         return resolve_input(value, self.opener)
 
-    def fetch_items(self, slug: str) -> tuple[str, list[RemoteSticker]]:
+    def fetch_set(self, slug: str) -> KakaoSetResponse:
         last_error: Optional[Exception] = None
         for path in ("/api/items/", "/api/v1/items/t/"):
             api_url = "https://e.kakao.com" + path + slug
@@ -213,10 +247,15 @@ class KakaoClient:
                 if _host(response.geturl()) != PAGE_HOST:
                     raise KakaoError("API 리디렉션 host가 허용되지 않습니다")
                 payload = json.loads(_read_limited(response, self.max_bytes).decode("utf-8"))
-                return api_url, parse_items(payload)
+                return parse_set(payload, api_url)
             except (HTTPException, URLError, OSError, ValueError, KakaoError) as error:
                 last_error = error
         raise KakaoError("카카오 이모티콘 정보를 가져오지 못했습니다") from last_error
+
+    def fetch_items(self, slug: str) -> tuple[str, list[RemoteSticker]]:
+        """Backward-compatible media-only view for existing callers."""
+        response = self.fetch_set(slug)
+        return response.api_url, list(response.items)
 
     def download(self, url: str) -> tuple[bytes, Optional[str]]:
         """Download media, following only bounded redirects within Kakao's CDN."""
