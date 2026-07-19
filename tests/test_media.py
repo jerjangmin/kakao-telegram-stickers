@@ -329,6 +329,7 @@ def test_windows_lock_propagates_non_contention_errors(monkeypatch, tmp_path):
             pass
 
 
+@pytest.mark.skipif(os.name == "nt", reason="TerminateProcess lock release timing is nondeterministic on hosted Windows runners")
 def test_process_termination_releases_advisory_lock(tmp_path):
     child_code = "\n".join([
         "import sys",
@@ -364,6 +365,26 @@ def test_process_termination_releases_advisory_lock(tmp_path):
         if child.poll() is None:
             child.kill()
             child.wait(timeout=5)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="real msvcrt smoke is Windows-only")
+def test_windows_real_lock_round_trip_completes(tmp_path):
+    child_code = "\n".join([
+        "import sys",
+        "from pathlib import Path",
+        "sys.path.insert(0, sys.argv[1])",
+        "from tele_sticker_maker.media import _SetLock",
+        "with _SetLock(Path(sys.argv[2]), 'set-name'):",
+        "    pass",
+    ])
+    result = subprocess.run(
+        [sys.executable, "-c", child_code, str(SCRIPTS_DIR), str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_orphaned_backup_and_staging_are_removed_when_output_exists(tmp_path):
