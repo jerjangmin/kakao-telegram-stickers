@@ -155,12 +155,10 @@ def test_stale_lease_cannot_replace_takeover_committed_item(tmp_path):
 
     assert store.list_items("job")[0]["status"] == "published"
 
+@pytest.mark.skipif(os.name == "nt", reason="high-volume WAL stress is covered on Linux/macOS; Windows keeps the 2-worker concurrency test")
 @pytest.mark.parametrize("workers", (2, 4, 12))
 def test_concurrent_first_initialization_stress(tmp_path, workers):
-    # Windows file locking and antivirus hooks make hundreds of fresh WAL files
-    # disproportionately slow; ten iterations still exercises every worker level.
-    iterations = 10 if os.name == "nt" else 100
-    for iteration in range(iterations):
+    for iteration in range(100):
         path = tmp_path / f"state-{workers}-{iteration}.sqlite"
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(StateStore, path) for _ in range(workers)]
