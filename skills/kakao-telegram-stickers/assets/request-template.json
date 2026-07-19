@@ -1,0 +1,10 @@
+{
+  "action": "prepare",
+  "source": "https://e.kakao.com/t/example",
+  "ownerUserId": 123456789,
+  "pack": "default",
+  "packTitle": "Kakao stickers",
+  "packSlug": "kakao_stickers",
+  "emoji": "🙂",
+  "dataDir": "~/.tele-sticker-maker"
+}

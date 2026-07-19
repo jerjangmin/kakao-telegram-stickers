@@ -1,0 +1,71 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.9', '3.11', '3.12']
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Verify source or code-only release mode
+        shell: bash
+        run: |
+          if [ "${GITHUB_REPOSITORY}" = "jerjangmin/TeleSticker-Maker" ]; then
+            if [ -e .code-only-release ]; then
+              echo "Private source checkout must not contain a public release marker."
+              exit 1
+            fi
+          elif [ ! -f .code-only-release ]; then
+            echo "Public checkout must contain the generated .code-only-release marker."
+            exit 1
+          fi
+      - name: Audit checked-out public release history
+        if: ${{ hashFiles('.code-only-release') != '' }}
+        run: python scripts/audit_public_tree.py .
+      - name: Install ffmpeg (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ffmpeg --no-progress -y
+      - name: Install locked dependencies
+        run: uv sync --locked --python ${{ matrix.python }}
+      - name: Check conversion dependencies
+        run: uv run --python ${{ matrix.python }} skills/kakao-telegram-stickers/scripts/run.py doctor --json
+      - name: Run tests
+        run: uv run --python ${{ matrix.python }} pytest -q
+      - name: Verify static and alpha-video conversion contracts
+        run: >-
+          uv run --python ${{ matrix.python }} pytest -q
+          tests/test_webp.py::test_static_png_is_rgba_and_fitted_without_mutating_source
+          tests/test_webp.py::test_animated_webp_becomes_valid_telegram_webm
+          tests/test_webp.py::test_validator_rejects_fully_invisible_alpha_and_accepts_mixed_alpha
+      - name: Verify Hermes skill bundle contract
+        run: uv run --python ${{ matrix.python }} pytest -q tests/test_skill_package.py
+      - name: Export and audit code-only release tree
+        shell: bash
+        run: |
+          rm -rf ../tele-sticker-maker-public
+          python scripts/export_public_tree.py ../tele-sticker-maker-public
+          python scripts/audit_public_tree.py ../tele-sticker-maker-public
+          uv run --directory ../tele-sticker-maker-public --python ${{ matrix.python }} pytest -q tests/test_skill_package.py

@@ -1,0 +1,17 @@
+[project]
+name = "tele-sticker-maker"
+version = "0.1.0"
+description = "Kakao emoticon downloader and Telegram sticker preparation tools"
+requires-python = ">=3.9"
+dependencies = [
+  "Pillow==11.3.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<9",
+  "pyyaml>=6,<7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
