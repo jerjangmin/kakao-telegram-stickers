@@ -53,9 +53,17 @@ jobs:
       - name: Check conversion dependencies
         run: uv run --python ${{ matrix.python }} skills/kakao-telegram-stickers/scripts/run.py doctor --json
       - name: Run cross-platform core tests
+        if: runner.os != 'Windows'
         env:
           TELE_STICKER_SKIP_VP9_E2E: '1'
         run: uv run --python ${{ matrix.python }} pytest -q --ignore=tests/test_public_release.py
+      - name: Run Windows core tests with hang detection
+        if: runner.os == 'Windows'
+        env:
+          TELE_STICKER_SKIP_VP9_E2E: '1'
+        run: >-
+          uv run --python ${{ matrix.python }} --with pytest-timeout==2.4.0
+          pytest -vv --timeout=120 --ignore=tests/test_public_release.py
       - name: Verify adversarial public release audit suite
         if: runner.os == 'Linux' && matrix.python == '3.12'
         run: uv run --python ${{ matrix.python }} pytest -q tests/test_public_release.py

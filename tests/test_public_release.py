@@ -689,6 +689,7 @@ def test_ci_workflow_declares_three_os_matrix_and_no_live_credentials():
     assert "uv sync --locked --python" in text
     assert "TELE_STICKER_SKIP_VP9_E2E: '1'" in text
     assert "--ignore=tests/test_public_release.py" in text
+    assert "pytest-timeout==2.4.0" in text and "--timeout=120" in text
     assert "runner.os == 'Linux' && matrix.python == '3.12'" in text
     assert "pytest -q tests/test_public_release.py" in text
     assert "test_animated_webp_becomes_valid_telegram_webm" in text
