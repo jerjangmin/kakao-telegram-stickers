@@ -77,6 +77,24 @@ def test_api_current_schema_and_legacy_fallback_are_normalized():
     assert len(items) == 1
 
 
+def test_fetch_set_preserves_current_api_mini_trait():
+    payload = {
+        "contents": {
+            "isMini": True,
+            "isBig": False,
+            "isSound": False,
+            "items": [{"thumbnailUrl": "https://item.kakaocdn.net/a.png", "width": 180, "height": 180}],
+        }
+    }
+    opener = Opener([Response("https://e.kakao.com/api/items/mini", json.dumps(payload).encode())])
+
+    response = KakaoClient(opener=opener).fetch_set("mini")
+
+    assert response.api_url.endswith("/api/items/mini")
+    assert response.metadata.is_mini is True
+    assert len(response.items) == 1
+
+
 def test_cdn_requires_kakao_cdn_enforces_response_limit_and_rejects_escape():
     client = KakaoClient(opener=Opener([Response("https://item.kakaocdn.net/a.png", b"x" * 5)]), max_bytes=4)
     with pytest.raises(KakaoError, match="크기"):

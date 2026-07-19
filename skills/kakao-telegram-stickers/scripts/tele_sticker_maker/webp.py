@@ -14,6 +14,8 @@ from typing import Sequence
 
 from PIL import Image
 
+from .models import RenderLayout, STANDARD_LAYOUT
+
 MAX_RIFF_SIZE = 64 * 1024 * 1024
 TELEGRAM_MAX_BYTES = 256 * 1024
 TELEGRAM_STATIC_MAX_BYTES = 512 * 1024
@@ -116,19 +118,37 @@ def _sibling_temp(destination: Path) -> Path:
     return Path(name)
 
 
-def make_static_png(source: Path, destination: Path) -> tuple[int, int]:
-    """Create a 512px-long-side RGBA PNG, atomically replacing destination."""
-    try:
-        with Image.open(source) as image:
-            rgba = image.convert("RGBA")
-    except OSError as error:
-        raise WebPError("정적 원본 PNG를 열지 못했습니다") from error
-    size = fit_size(*rgba.size)
+def _render_frame(image: Image.Image, layout: RenderLayout) -> Image.Image:
+    rgba = image.convert("RGBA")
+    maximum_width, maximum_height = layout.content_box
+    scale = min(maximum_width / rgba.width, maximum_height / rgba.height)
+    size = (max(1, round(rgba.width * scale)), max(1, round(rgba.height * scale)))
     if rgba.size != size:
         rgba = rgba.resize(size, Image.Resampling.LANCZOS)
+    if layout.canvas_size is None:
+        return rgba
+    canvas = Image.new("RGBA", layout.canvas_size, (0, 0, 0, 0))
+    position = ((canvas.width - rgba.width) // 2, (canvas.height - rgba.height) // 2)
+    canvas.alpha_composite(rgba, position)
+    return canvas
+
+
+def make_static_png(
+    source: Path,
+    destination: Path,
+    *,
+    layout: RenderLayout = STANDARD_LAYOUT,
+) -> tuple[int, int]:
+    """Create an RGBA PNG using the selected immutable render layout."""
+    try:
+        with Image.open(source) as image:
+            rendered = _render_frame(image, layout)
+    except OSError as error:
+        raise WebPError("정적 원본 PNG를 열지 못했습니다") from error
+    size = rendered.size
     temporary = _sibling_temp(destination)
     try:
-        rgba.save(temporary, format="PNG")
+        rendered.save(temporary, format="PNG")
         if temporary.stat().st_size > TELEGRAM_STATIC_MAX_BYTES:
             raise CandidateValidationError("Telegram PNG 파일 크기가 512KB를 초과했습니다")
         os.replace(temporary, destination)
@@ -291,7 +311,14 @@ def _sample_frame_indices(durations: Sequence[int], fps: int) -> tuple[int, ...]
     return tuple(indices)
 
 
-def make_animated_webm(source: Path, destination: Path, *, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe") -> VideoValidation:
+def make_animated_webm(
+    source: Path,
+    destination: Path,
+    *,
+    ffmpeg: str = "ffmpeg",
+    ffprobe: str = "ffprobe",
+    layout: RenderLayout = STANDARD_LAYOUT,
+) -> VideoValidation:
     """Pillow-decode WebP frames and encode bounded, sampled VP9 alpha WebM."""
     timing = inspect_animated_webp(source)
     durations = _scaled_durations(timing.frame_durations_ms)
@@ -307,9 +334,7 @@ def make_animated_webm(source: Path, destination: Path, *, ffmpeg: str = "ffmpeg
                 image.seek(index)
                 frame = image.convert("RGBA")
                 expected_transparency = expected_transparency or frame.getchannel("A").getextrema()[0] < 255
-                size = fit_size(*frame.size)
-                if frame.size != size:
-                    frame = frame.resize(size, Image.Resampling.LANCZOS)
+                frame = _render_frame(frame, layout)
                 frame_path = temporary / "source_{:05d}.png".format(index)
                 frame.save(frame_path, format="PNG")
                 source_frames.append(frame_path)
@@ -331,6 +356,8 @@ def make_animated_webm(source: Path, destination: Path, *, ffmpeg: str = "ffmpeg
                     raise ToolError("ffmpeg VP9 인코딩 실패: " + str(result.stderr).strip())
                 try:
                     validation = validate_telegram_video(candidate, ffprobe=ffprobe, ffmpeg=ffmpeg, expected_transparency=expected_transparency)
+                    if layout.canvas_size is not None and (validation.width, validation.height) != layout.canvas_size:
+                        raise CandidateValidationError("선택한 레이아웃의 WebM 캔버스 크기와 일치하지 않습니다")
                 except CandidateValidationError:
                     continue
                 destination_temp = _sibling_temp(destination)

@@ -75,7 +75,12 @@ class StickerWorkflow:
     def prepare(self, source: str) -> WorkflowResult:
         job_id=uuid.uuid4().hex; staging=self.config.data_dir/"jobs"/(job_id+".staging"); final=self.config.data_dir/"jobs"/job_id; work_dir=self.config.data_dir/"work"/job_id
         try:
-            me=self.telegram.get_me(); workspace_root=work_dir/"stickers"; manifest=self._download(source,workspace_root); root=workspace_root/manifest.slug
+            me=self.telegram.get_me(); workspace_root=work_dir/"stickers"
+            if self.config.layout_mode == "auto":
+                manifest=self._download(source,workspace_root)
+            else:
+                manifest=self._download(source,workspace_root,layout_mode=self.config.layout_mode)
+            root=workspace_root/manifest.slug
             latest=self.store.latest_pack(self.config.owner_user_id,self.config.pack_alias)
             if latest and latest["telegram_name"] != generate_short_name(self.config.pack_slug,me["username"],int(latest["sequence"])):
                 raise WorkflowError("기존 pack alias의 Telegram 이름이 현재 slug/bot 설정과 일치하지 않습니다")
@@ -105,7 +110,12 @@ class StickerWorkflow:
                 for prepared_item in prepared
                 if prepared_item.status is not ItemStatus.READY
             ]
+            manifest_summary=manifest.to_dict()
             summary={"jobId":job_id,"slug":manifest.slug,"targetPack":target,"discovered":len(prepared),"readyStatic":sum(p.telegram_format and p.telegram_format.value=="static" for p in ready),"readyVideo":sum(p.telegram_format and p.telegram_format.value=="video" for p in ready),"duplicates":sum(p.status is ItemStatus.SKIPPED_DUPLICATE for p in prepared),"excluded":sum(p.status is ItemStatus.SKIPPED_INVALID for p in prepared),"failed":sum(p.status is ItemStatus.FAILED for p in prepared),"issues":issues,"packsAfterPublish":self._plan_pack_names(me["username"],sequence,count,len(ready)),"requiresConfirmation":True,"binding":{"botId":me.get("id"),"botUsername":me["username"],"ownerUserId":self.config.owner_user_id,"packAlias":self.config.pack_alias,"packTitle":self.config.pack_title,"packSlug":self.config.pack_slug,"emoji":self.config.emoji}}
+            if "sourceTraits" in manifest_summary:
+                summary["sourceTraits"]=manifest_summary["sourceTraits"]
+            if "layout" in manifest_summary:
+                summary["layout"]=manifest_summary["layout"]
             staging.parent.mkdir(parents=True,exist_ok=True); os.replace(staging,final)
             self.store.create_prepared_job_with_items(owner_user_id=self.config.owner_user_id,source_url=source,kakao_slug=manifest.slug,target_alias=self.config.pack_alias,requested_emoji=self.config.emoji,resolved_url=manifest.source_page,summary=summary,job_id=job_id,items=records,pack_reservations=[{"sequence":sequence,"telegram_name":target,"title":self._title(sequence),"last_known_count":count or 0}])
             return WorkflowResult(summary)

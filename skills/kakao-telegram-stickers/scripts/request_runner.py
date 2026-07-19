@@ -83,6 +83,8 @@ def _publish_arguments(request: Dict[str, Any], *, action: str) -> List[str]:
     expected = {"action", "ownerUserId", "pack", "packTitle", "packSlug", "emoji", "dataDir"}
     if action == "prepare":
         expected.add("source")
+        if "layoutMode" in request:
+            expected.add("layoutMode")
     else:
         expected.update({"jobId", "confirm"})
     _required(request, expected)
@@ -91,6 +93,11 @@ def _publish_arguments(request: Dict[str, Any], *, action: str) -> List[str]:
     arguments = [action]
     if action == "prepare":
         arguments.extend(["--source", _string(request["source"])])
+        if "layoutMode" in request:
+            layout_mode = _string(request["layoutMode"])
+            if layout_mode not in {"auto", "mini", "standard"}:
+                raise RequestError
+            arguments.extend(["--layout-mode", layout_mode])
     else:
         if request["confirm"] is not True:
             raise RequestError

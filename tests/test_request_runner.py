@@ -55,6 +55,17 @@ def test_prepare_uses_custom_hermes_home_passes_injection_as_one_argv_value_and_
     assert not (tmp_path / "should-not-run").exists()
 
 
+def test_prepare_maps_optional_layout_mode_to_one_cli_argument(tmp_path, monkeypatch):
+    path = _request(tmp_path, monkeypatch, _config("prepare", source="mini-pack", layoutMode="mini"))
+    calls = []
+    monkeypatch.setattr(runner.cli, "main", lambda argv: calls.append(argv) or 0)
+
+    assert runner.main(["--request-id", "session"]) == 0
+
+    assert calls[0][calls[0].index("--layout-mode") + 1] == "mini"
+    assert not path.exists()
+
+
 def test_default_hermes_home_is_used_when_environment_is_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("HERMES_HOME", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))

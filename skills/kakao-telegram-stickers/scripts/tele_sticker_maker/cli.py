@@ -40,7 +40,7 @@ def _normalize_argv(argv: Sequence[str]) -> list[str]:
     command = values[0]
     value_options = {
         "download": {"--input", "--output"},
-        "prepare": {"--owner-user-id", "--pack", "--pack-title", "--pack-slug", "--emoji", "--data-dir", "--source"},
+        "prepare": {"--owner-user-id", "--pack", "--pack-title", "--pack-slug", "--emoji", "--data-dir", "--source", "--layout-mode"},
     }[command]
     normalized = [command]
     skip_value = False
@@ -185,6 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
         if command == "prepare":
             sub.add_argument("source", nargs="?", help="Kakao slug or approved Kakao URL")
             sub.add_argument("--source", dest="explicit_source", help="Kakao slug or approved Kakao URL")
+            sub.add_argument("--layout-mode", choices=("auto", "mini", "standard"), default="auto")
         else:
             sub.add_argument("--job-id", required=True)
             sub.add_argument("--confirm", action="store_true")
@@ -232,7 +233,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 7
     if args.command in ("prepare", "publish"):
         try:
-            config = PublishConfig.from_values(owner_user_id=args.owner_user_id, pack=args.pack, pack_title=args.pack_title, pack_slug=args.pack_slug, emoji=args.emoji, data_dir=args.data_dir)
+            config = PublishConfig.from_values(
+                owner_user_id=args.owner_user_id,
+                pack=args.pack,
+                pack_title=args.pack_title,
+                pack_slug=args.pack_slug,
+                emoji=args.emoji,
+                data_dir=args.data_dir,
+                layout_mode=getattr(args, "layout_mode", "auto"),
+            )
             result = StickerWorkflow(config, StateStore(config.data_dir / "state.sqlite")).prepare(args.source) if args.command == "prepare" else StickerWorkflow(config, StateStore(config.data_dir / "state.sqlite")).publish(args.job_id, confirm=args.confirm)
         except ConfigError as error:
             print(str(error), file=sys.stderr); return 2

@@ -1,6 +1,7 @@
 {
   "action": "prepare",
   "source": "https://e.kakao.com/t/example",
+  "layoutMode": "auto",
   "ownerUserId": 123456789,
   "pack": "default",
   "packTitle": "Kakao stickers",

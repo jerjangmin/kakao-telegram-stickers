@@ -17,10 +17,10 @@ from PIL import Image
 SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills" / "kakao-telegram-stickers" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-from tele_sticker_maker.kakao import KakaoError, RemoteSticker
+from tele_sticker_maker.kakao import KakaoError, KakaoSetResponse, RemoteSticker
 from tele_sticker_maker import media
 from tele_sticker_maker.media import MediaError, _SetLock, download_set, prepare_telegram_item
-from tele_sticker_maker.models import ItemStatus, TelegramFormat
+from tele_sticker_maker.models import ItemStatus, KakaoSetMetadata, TelegramFormat
 
 
 def png_bytes(size=(8, 6), color=(255, 0, 0, 128)):
@@ -96,6 +96,38 @@ def test_static_telegram_derivative_does_not_mutate_preserved_source(tmp_path):
     with Image.open(tmp_path / "set-name" / prepared.telegram_path) as image:
         assert image.size == (512, 128)
         assert image.getpixel((0, 0))[3] == 77
+
+
+def test_mini_set_records_layout_and_prepares_centered_derivative(tmp_path):
+    raw = png_bytes((180, 180), (10, 20, 30, 255))
+    remote = RemoteSticker("https://item.kakaocdn.net/a.png", "https://item.kakaocdn.net/a.png", None, 180, 180)
+
+    class MiniClient(Client):
+        def fetch_set(self, slug):
+            return KakaoSetResponse(
+                "https://e.kakao.com/api/items/set-name",
+                KakaoSetMetadata(True, False, False),
+                (remote,),
+            )
+
+    manifest = download_set("set-name", tmp_path, MiniClient([remote], {remote.source_url: raw}), layout_mode="auto")
+    prepared = prepare_telegram_item(manifest.items[0], tmp_path / "set-name")
+    saved = json.loads((tmp_path / "set-name/json/manifest.json").read_text())
+
+    assert saved["schemaVersion"] == 3
+    assert saved["sourceTraits"]["isMini"] is True
+    assert saved["layout"] == {
+        "kind": "mini",
+        "requestedMode": "auto",
+        "decisionSource": "contents.isMini",
+        "manualOverride": False,
+        "canvas": [512, 512],
+        "contentBox": [250, 250],
+        "warnings": [],
+    }
+    with Image.open(tmp_path / "set-name" / prepared.telegram_path) as image:
+        assert image.size == (512, 512)
+        assert image.getbbox() == (131, 131, 381, 381)
 
 
 def test_telegram_conversion_failure_is_structured_on_the_prepared_item(tmp_path):
