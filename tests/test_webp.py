@@ -97,7 +97,7 @@ def _vp9_capable() -> bool:
     return result.returncode == 0 and "libvpx-vp9" in result.stdout
 
 
-@pytest.mark.skipif(not _vp9_capable(), reason="ffmpeg, ffprobe, or libvpx-vp9 encoder unavailable")
+@pytest.mark.skipif(not _vp9_capable() or os.environ.get("TELE_STICKER_SKIP_VP9_E2E") == "1", reason="real VP9 E2E disabled or encoder unavailable")
 def test_animated_webp_becomes_valid_telegram_webm(tmp_path):
     source, output = tmp_path / "source.webp", tmp_path / "sticker.webm"
     _animated_webp(source)
@@ -110,7 +110,7 @@ def test_animated_webp_becomes_valid_telegram_webm(tmp_path):
 
 
 @pytest.mark.parametrize("durations", [(2_000, 2_000), (3_000, 3_000)])
-@pytest.mark.skipif(not _vp9_capable(), reason="ffmpeg, ffprobe, or libvpx-vp9 encoder unavailable")
+@pytest.mark.skipif(not _vp9_capable() or os.environ.get("TELE_STICKER_SKIP_VP9_E2E") == "1", reason="real VP9 E2E disabled or encoder unavailable")
 def test_long_animations_encode_within_three_second_boundary(tmp_path, durations):
     source, output = tmp_path / "source.webp", tmp_path / "sticker.webm"
     _animated_webp(source, durations)
@@ -165,7 +165,7 @@ def test_validator_rejects_opaque_alpha_for_transparent_source(tmp_path, monkeyp
         validate_telegram_video(video, expected_transparency=True)
 
 
-@pytest.mark.skipif(not _vp9_capable(), reason="ffmpeg, ffprobe, or libvpx-vp9 encoder unavailable")
+@pytest.mark.skipif(not _vp9_capable() or os.environ.get("TELE_STICKER_SKIP_VP9_E2E") == "1", reason="real VP9 E2E disabled or encoder unavailable")
 def test_animated_atomic_write_preserves_old_destination_on_replace_failure(tmp_path, monkeypatch):
     source, destination = tmp_path / "source.webp", tmp_path / "telegram.webm"
     _animated_webp(source)

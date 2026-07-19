@@ -687,6 +687,11 @@ def test_ci_workflow_declares_three_os_matrix_and_no_live_credentials():
     assert "astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2" in text
     assert "fetch-depth: 0" in text
     assert "uv sync --locked --python" in text
+    assert "TELE_STICKER_SKIP_VP9_E2E: '1'" in text
+    assert "--ignore=tests/test_public_release.py" in text
+    assert "runner.os == 'Linux' && matrix.python == '3.12'" in text
+    assert "pytest -q tests/test_public_release.py" in text
+    assert "test_animated_webp_becomes_valid_telegram_webm" in text
     assert "doctor --json" in text
     assert "export_public_tree.py" in text and "audit_public_tree.py" in text
     assert "jerjangmin/TeleSticker-Maker" in text

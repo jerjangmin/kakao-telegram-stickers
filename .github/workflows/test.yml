@@ -52,8 +52,13 @@ jobs:
         run: uv sync --locked --python ${{ matrix.python }}
       - name: Check conversion dependencies
         run: uv run --python ${{ matrix.python }} skills/kakao-telegram-stickers/scripts/run.py doctor --json
-      - name: Run tests
-        run: uv run --python ${{ matrix.python }} pytest -q
+      - name: Run cross-platform core tests
+        env:
+          TELE_STICKER_SKIP_VP9_E2E: '1'
+        run: uv run --python ${{ matrix.python }} pytest -q --ignore=tests/test_public_release.py
+      - name: Verify adversarial public release audit suite
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: uv run --python ${{ matrix.python }} pytest -q tests/test_public_release.py
       - name: Verify static and alpha-video conversion contracts
         run: >-
           uv run --python ${{ matrix.python }} pytest -q
